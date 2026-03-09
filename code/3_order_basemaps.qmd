@@ -1,9 +1,9 @@
 ---
-title: Download Planet Basemap Scenes for the Arctic Boreal Region Using Orders API
+title: Download Planet Basemap Scenes for the Circumpolar South Region Using Orders API
 jupyter: python3
 ---
 
-This script downloads all basemap grids within the Arctic Boreal Region for a specific year.
+This script downloads all basemap grids within the Circumpolar South region for a specific year.
 
 
 ```{python}
@@ -11,6 +11,7 @@ import os
 import sys
 import json
 from google.cloud import storage
+from google.cloud import storage_control_v2
 import google.auth
 import gcsfs
 import requests
@@ -53,6 +54,12 @@ bucket = storage_client.bucket(bucket_name)
 imagery_year = '2025'
 ```
 
+```{python}
+# path for imagery to be delivered to
+delivery_directory = "global_quarterly/" + imagery_year + "/q3"
+```
+
+
 # Define Functions
 This needs to be updated to just remove the order_id directory within the delivery directory.
 ```{python}
@@ -85,9 +92,6 @@ grids_filtered
 # record time downloads started
 start = datetime.now()
 print("Downloads started at ", start)
-
-# path for imagery to be delivered to
-delivery_directory = "global_quarterly/" + imagery_year + "/q3"
 
 for index, row in grids_filtered.iloc[0:1].iterrows():
     basemap_name = row["basemap_name"]
@@ -182,19 +186,34 @@ all_files = [file for file in files]
 all_names = [file.name for file in all_files]
 ```
 
-## Construct new Names for Data Files
+## Construct New Names for Data Files
 
 ```{python}
 renaming_guide = pd.DataFrame({"blob": all_files, "old_name": all_names})
-renaming_guide["new_name"] = planet_renaming_manifest.old_name.apply(rename_data_files)
+renaming_guide["new_name"] = renaming_guide.old_name.apply(rename_data_files)
 
 renaming_guide.to_csv("data/planet_renaming_guide.csv", index=False)
+```
+
+## Create List of Old Directories to Delete
+
+```{python}
+directories_to_delete = renaming_guide[["old_name"]]
+directories_to_delete[["directory", "remove"]] = (
+    directories_to_delete.old_name.str.rsplit("/", n=1, expand=True)
+)
+directories_to_delete["directory"] = directories_to_delete.directory + "/"
+directories_to_delete.drop(["remove", "old_name"], axis=1, inplace=True)
+
+directories_to_delete = list(
+    directories_to_delete.drop_duplicates(subset=["directory"], keep="first").directory
+)
 ```
 
 # Rename Files
 Rename all files (both data files and manifests) using bucket.copy_blob within a concurrent.futures multithreading process. Then delete all original blobs in one call.
 
-### Copy
+## Copy
 
 ```{python}
 start = datetime.now()
@@ -215,7 +234,9 @@ end = datetime.now()
 print(f"Copying all old files took {end - start}.")
 ```
 
-### Delete
+## Delete
+
+### Batch Delete Files
 ~ 2500 files per minute
 ```{python}
 # Check that all files have been copied over
@@ -245,36 +266,14 @@ if len(new_names) == len(
     print(f"Deleting all old files took {end - start}.")
 ```
 
+### Delete Remaining Empty Directories
 
 ```{python}
-# Old renaming code needs to be updated to first copy and then batch delete
-# # rename files to desired name
-# blobs = [
-#     blob
-#     for blob in bucket.list_blobs(prefix=delivery_directory)
-# ]
-# print(blobs[0])
-# # get correspondence between order IDs and Planet Quad row numbers
-# tif_files = [file.name for file in blobs if re.search("quad.tif", file.name)]
-# files = [file.name for file in blobs]
-# order_ids = [
-#     re.search("[a-z0-9]{8}(-[a-z0-9]{4}){3}-[a-z0-9]{12}", file)[0]
-#     for file in tif_files
-# ]
-# order_row_numbers = [re.search("(?<=-)\\d{1,4}(?=_)", file)[0] for file in tif_files]
-# id_row_correspondence = dict(zip(order_ids, order_row_numbers))
-# pprint(id_row_correspondence)
+control_client = storage_control_v2.StorageControlClient()
 
-# # rename
-# pattern = re.compile("|".join(id_row_correspondence.keys()))
-# new_names = [
-#     re.sub(
-#         "global_quarterly_2024q3_mosaic/",
-#         "global_quarterly_2024q3_mosaic_",
-#         re.sub(pattern, lambda m: id_row_correspondence[m.group(0)], file),
-#     )
-#     for file in files
-# ]
-# [bucket.rename_blob(blob, new_name) for blob, new_name in zip(blobs, new_names)]
-
+for path in directories_to_delete:
+    folder_name = control_client.folder_path(
+        project="_", bucket="pdg-planet-data", folder=path
+    )
+    control_client.delete_folder(name=folder_name)
 ```
