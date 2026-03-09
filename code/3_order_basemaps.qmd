@@ -192,7 +192,7 @@ all_names = [file.name for file in all_files]
 renaming_guide = pd.DataFrame({"blob": all_files, "old_name": all_names})
 renaming_guide["new_name"] = renaming_guide.old_name.apply(rename_data_files)
 
-renaming_guide.to_csv("data/planet_renaming_guide.csv", index=False)
+renaming_guide.to_csv("data/planet_renaming_guide.csv", index=False, mode="x")
 ```
 
 ## Create List of Old Directories to Delete
