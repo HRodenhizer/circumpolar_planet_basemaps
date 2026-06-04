@@ -98,6 +98,7 @@ cs_planet_grids |>
 ```{r}
 # st_write(
 #   cs_planet_grids,
-#   "./data/circumpolar_south_planet_basemap_grids_2025.geojson"
+#   "./data/circumpolar_south_planet_basemap_grids_2025.geojson",
+#   append = FALSE
 # )
 ```

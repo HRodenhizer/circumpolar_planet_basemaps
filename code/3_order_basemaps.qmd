@@ -84,6 +84,12 @@ grids_filtered
 ```
 
 # Order Imagery
+From 2024 training data download, we can expect about 39 grids/minute. These orders will cover 259783 grids.
+
+```{python}
+expected_delivery_time = grids_filtered.shape[0] / 39 / 60 / 24  # in days
+expected_delivery_time
+```
 
 ```{python}
 # | code_folding: []
@@ -93,7 +99,7 @@ grids_filtered
 start = datetime.now()
 print("Downloads started at ", start)
 
-for index, row in grids_filtered.iloc[0:1].iterrows():
+for index, row in grids_filtered.iterrows():
     basemap_name = row["basemap_name"]
     item_id = [row["id"]]  # only deliver a single item at a time
     delivery_location = row[
@@ -106,8 +112,11 @@ for index, row in grids_filtered.iloc[0:1].iterrows():
 
     # Get prior orders from GCS
     blobs = bucket.list_blobs(prefix=delivery_directory)
-    files = [file for file in blobs if re.search("quad.tif", file.name)]
-    prior_ids = [re.search("\\d{1,4}-\\d{1,4}", file.name).group() for file in files]
+    files = [file for file in blobs if re.search("quad", file.name)]
+    prior_ids = [
+        re.search("\\d{1,4}-\\d{1,4}", file.name.split("/")[-1]).group()
+        for file in files
+    ]
 
     print("-------------------------------------")
     print(index, ": ", item_id[0])
@@ -179,11 +188,24 @@ print("Dowloading ", len(grids_filtered), " grids took ", total_time)
 ## Find Files to be renamed
 
 ```{python}
-# Get files to be renamed from GCS
-blobs = bucket.list_blobs(prefix=delivery_directory)
-files = [file for file in blobs]
-all_files = [file for file in files]
-all_names = [file.name for file in all_files]
+pl = Planet()
+
+
+def list_running_orders():
+    orders = list(pl.orders.list_orders(state="running"))
+    return orders
+
+
+running_orders = list_running_orders()
+
+if len(running_orders) == 0:
+    # Get files to be renamed from GCS
+    blobs = bucket.list_blobs(prefix=delivery_directory)
+    files = [file for file in blobs]
+    all_files = [file for file in files]
+    all_names = [file.name for file in all_files]
+else:
+    print("Orders are still running! Do not proceed.")
 ```
 
 ## Construct New Names for Data Files
@@ -191,8 +213,12 @@ all_names = [file.name for file in all_files]
 ```{python}
 renaming_guide = pd.DataFrame({"blob": all_files, "old_name": all_names})
 renaming_guide["new_name"] = renaming_guide.old_name.apply(rename_data_files)
-
-renaming_guide.to_csv("data/planet_renaming_guide.csv", index=False, mode="x")
+renaming_guide = renaming_guide.loc[renaming_guide.old_name != renaming_guide.new_name]
+renaming_guide.to_csv(
+    "data/planet_renaming_guide_" + datetime.today().strftime("%Y%m%d_%H%M%S") + ".csv",
+    index=False,
+    mode="x",
+)
 ```
 
 ## Create List of Old Directories to Delete
@@ -238,6 +264,12 @@ print(f"Copying all old files took {end - start}.")
 
 ### Batch Delete Files
 ~ 2500 files per minute
+
+```{python}
+expected_deletion_time = len(directories_to_delete) / 2500 / 60  # in hours
+expected_deletion_time
+```
+
 ```{python}
 # Check that all files have been copied over
 new_names = [
@@ -267,13 +299,13 @@ if len(new_names) == len(
 ```
 
 ### Delete Remaining Empty Directories
-
+I don't think this is necessary anymore with the updated renaming system.
 ```{python}
-control_client = storage_control_v2.StorageControlClient()
+# control_client = storage_control_v2.StorageControlClient()
 
-for path in directories_to_delete:
-    folder_name = control_client.folder_path(
-        project="_", bucket="pdg-planet-data", folder=path
-    )
-    control_client.delete_folder(name=folder_name)
+# for path in directories_to_delete:
+#     folder_name = control_client.folder_path(
+#         project="_", bucket="pdg-planet-data", folder=path
+#     )
+#     control_client.delete_folder(name=folder_name)
 ```
