@@ -1,8 +1,6 @@
 ---
 title: "Arctic Boreal Basemap Grids"
 author: "Heidi Rodenhizer"
-format: html
-editor: visual
 ---
 
 # Load Packages
