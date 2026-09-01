@@ -3,6 +3,8 @@ data/
 figures/
 *.qgz
 *.json
+Screenshot*.png
+*error.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
